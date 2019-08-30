@@ -262,6 +262,8 @@ extension GetProductListResponse : ImmutableMappable {
 ```
 
 ### Indicates Decoding Response Type
+
+#### Decode using ObjectMapper
 In order to let `NetworkClient` know if we've defined a decoding method in our `KKdaySCMRequest`, we will have to define a protocol with an `associatedtype`:
 
 ```swift
@@ -276,11 +278,33 @@ By pluging `MappableResponse` to any `KKdaySCMRequestType`, tell that api what `
 extension KKdaySCMRequest {
   struct Products {
     struct GetProductList : KKdaySCMRequestType & MappableResponse {
-      typealias ResponseType = OrderTable
+      typealias ResponseType = GetProductListResponse
 
       var path: String { return subpath }
       var method: Method { return .get }
       var task: Task { return .requestPlain }
+    }
+  }
+}
+```
+
+#### Decode using Decodable
+If you prefer to use `Decodable` to decode json, you will need to conform your model to `Decodable` and implement what's required by `Decodable` protocol. Then plug `DecodableResponse` to your API request:
+
+```swift
+protocol DecodableResponse {
+  associatedtype ResponseType: Decodable
+}
+
+extension GetProductListResponse : Decodable {
+  // ...
+}
+
+extension KKdaySCMRequest {
+  struct Products {
+    struct GetProductList : KKdaySCMRequestType & DecodableResponse {
+      typealias ResponseType = GetProductListResponse
+      // ...
     }
   }
 }
@@ -409,11 +433,107 @@ API.shared.request(KKdaySCMRequest.Products.GetProductList())
 ## Advanced Usage
 
 ### Retry
+Sometimes, user will be in a bad network environment with huge package lost rate or latency. API calls usually failed few times in such condition. In order to make error rate a bit lower, we wish api calls are able to retry few times before it error out. To make api requests have ability to retry, we need another protocol here:
+
+We will need 2 properties here:
+1. retryInterval: interval between each retry.
+2. retryCount: how many time should we retry before error out.
+
+```swift
+public protocol RetryableRquest {
+    var retryInterval: DispatchTimeInterval { get }
+    var retryCount: Int { get }
+}
+
+extension RetryableRquest {
+    var retryInterval: DispatchTimeInterval { return .seconds(2) }
+    var retryCount: Int { return 3 }
+}
+```
+
+With `RetryableRquest` protocol, just plug it to API request that is required for retrying:
+
+```swift
+extension KKdaySCMRequest {
+  struct Products {
+    struct GetProductList : KKdaySCMRequestType & DecodableResponse & RetryableRquest {
+      typealias ResponseType = GetProductListResponse
+      // ...
+    }
+  }
+}
+```
+---
+
+(**You can skip this part**)
+
+In order to make api retryable, we need to tell `NetworkClient` how to do the job:
+
+```swift
+
+extension API.NetworkClient {
+  func request<Request: TargetType & RetryableRquest>(_ retryingRequest: Request) -> Promise<JSON?> {
+    return attempt(maximumRetryCount: retryingRequest.retryCount, delayBeforeRetry: retryingRequest.retryInterval, {
+      return self.perform(retryingRequest, on: self.requestQueue)
+    })
+  }
+
+  func request<Request: TargetType & MappableResponse & RetryableRquest>(_ retryingRequest: Request) -> Promise<Request.ResponseType> {
+    return attempt(maximumRetryCount: retryingRequest.retryCount, delayBeforeRetry: retryingRequest.retryInterval, {
+      return self.perform(retryingRequest, on: self.requestQueue)
+    })
+  }
+}
+```
+
+>>>more about [PromiseKit/Attempt](https://github.com/mxcl/PromiseKit/blob/master/Documentation/CommonPatterns.md#retry--polling)
+
+(**You can skip this part**)
+
+---
+
+### Rx Retry
+Implemented...
 
 ### Plugins
+Moya has a powerful tool called `"PluginType"`, allows us to do pre/post process to a request.
+see more: [Moya/PluginType](https://github.com/Moya/Moya/blob/master/docs/Plugins.md)
+
+#### Injecting x-auth-token to all KKdaySCMRequests
+
+We will have to add a new protocol `XAuthHeaderInjecting`. By conforming to `XAuthHeaderInjecting` protocol, we can check if request needs to inject `x-auth-token` to its `header field`.
+
+```swift
+import Moya
+
+public protocol XAuthHeaderInjecting {}
+
+public class XAuthHeaderInjectingPlugin : PluginType {
+  public func prepare(_ request: URLRequest, target: TargetType) -> URLRequest {
+    if let multiTarget = target as? MultiTarget, case let MultiTarget.target(actualTarget) = multiTarget {
+      if actualTarget is (KKdayRequestType & XAuthHeaderInjecting) {
+        // inject x-auth header here
+        var request = request // mutabable copy of request
+        request.addValue("x-auth-token-will-be-here", forHTTPHeaderField: "x-auth-token")
+        return request
+      }
+    }
+
+    return request
+  }
+}
+```
+
+Then we have to make `KKdaySCMRequestType` conforms to `XAuthHeaderInjecting` protocol.
+
+```swift
+public protocol KKdaySCMRequestType : TargetType & XAuthHeaderInjecting {
+  // ...
+}
+```
 
 ### OAuth & Refresh Token
-
+Server does not have refresh token now, but refresh plugin is ready.
 
 ---
 
