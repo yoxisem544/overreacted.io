@@ -538,6 +538,106 @@ Server does not have refresh token now, but refresh plugin is ready.
 ---
 
 ## Testing
-### Stubbing
+Moya provide us some handy ways to do stubbing or injecting mock data for test perpose.
+see more: [Moya/Testing](https://github.com/Moya/Moya/blob/master/docs/Testing.md)
+
+Let's take a closer look at `MoyaProvider`:
+```swift
+public init(endpointClosure: @escaping EndpointClosure = MoyaProvider.defaultEndpointMapping,
+            requestClosure: @escaping RequestClosure = MoyaProvider.defaultRequestMapping,
+            stubClosure: @escaping StubClosure = MoyaProvider.neverStub,
+            callbackQueue: DispatchQueue? = nil,
+            manager: Manager = MoyaProvider<Target>.defaultAlamofireManager(),
+            plugins: [PluginType] = [],
+            trackInflights: Bool = false) { ... }
+```
 
 ### Mock Data
+We have see what `callbackQueue` and `plugins` can do previously. Do you see `endpointClosure` and `stubClosure`? We can inject `mock data` and `fake status code` to `endpointClosure` by providing `Endpoint`.
+
+```swift
+func makeMockDataClosure(_ statusCode: Int, _ mockData: Data) -> ((MultiTarget) -> Endpoint) {
+  return { (target: MultiTarget) -> Endpoint in
+    return Endpoint(
+      url: URL(target: target).absoluteString,
+      sampleResponseClosure: { .networkResponse(statusCode, mockData) },
+      method: target.method,
+      task: target.task,
+      httpHeaderFields: target.headers
+    )
+  }
+}
+```
+
+### Simulates Real World Networking
+MoyaProvider can simulates a networking delay when we are testing our api codes. This enables us to test api call with a bit response latency or even timeout condition.
+
+```swift
+MoyaProvider.delayedStub(responseTime) // return after a delay
+MoyaProvider.immediatelyStub // immediately return
+```
+
+### How Do We Write Test Code?
+We all know that `NetworkClient` do networking job for us, so we will have provide a fake provider to `NetworkClient`.
+
+```swift
+extension API {
+  public struct StubbingConstructor {
+    private var statusCode: Int = 200
+    private var mockData: Data = Data()
+    private var responseTime: TimeInterval = 0.3
+
+    public func setSuccess(mockData: Data, statusCode: Int = 200, responseTime: TimeInterval = 0.3) -> NetworkClient {
+      return NetworkClient(provider: {
+        let mockDataClosure = makeMockDataClosure(statusCode, mockData)
+        let stubClosure = getStubClosure(from: responseTime)
+        return MoyaProvider<MultiTarget>(endpointClosure: mockDataClosure, stubClosure: stubClosure)
+      }())
+    }
+
+    public func setFailure(mockData: Data, statusCode: Int = 400, responseTime: TimeInterval = 0.3) -> NetworkClient {
+      return NetworkClient(provider: {
+        let mockDataClosure = makeMockDataClosure(statusCode, mockData)
+        let stubClosure = getStubClosure(from: responseTime)
+        return MoyaProvider<MultiTarget>(endpointClosure: mockDataClosure, stubClosure: stubClosure)
+      }())
+    }
+
+    /// Determine if needs a delayed stubbing from given response time
+    private func getStubClosure(from responseTime: TimeInterval) -> ((MultiTarget) -> StubBehavior) {
+      return responseTime > 0 ? MoyaProvider.delayedStub(responseTime) : MoyaProvider.immediatelyStub
+    }
+
+    private func makeMockDataClosure(_ statusCode: Int, _ mockData: Data) -> ((MultiTarget) -> Endpoint) {
+      return { (target: MultiTarget) -> Endpoint in
+        return Endpoint(
+          url: URL(target: target).absoluteString,
+          sampleResponseClosure: { .networkResponse(statusCode, mockData) },
+          method: target.method,
+          task: target.task,
+          httpHeaderFields: target.headers
+        )
+      }
+    }
+  }
+
+  /// Starts a stubbing api call
+  public class func stubbing() -> StubbingConstructor {
+    return StubbingConstructor()
+  }
+}
+```
+
+With `StubbingConstructor`, we can provide mock data, status code and response time to make a fake provider for `NetworkClient`.
+
+```swift
+let request = KKdaySCMRequest.Products.GetProductList()
+// with setSuccess default value, we will have a 0.3 second delay for api to return, status code set to 200.
+API.stubbing().setSuccess(mockData: someData).request(request)
+  .done({ response in
+    // do some assert...
+  })
+  .catch({ e in
+    // do some assert...
+  })
+```
