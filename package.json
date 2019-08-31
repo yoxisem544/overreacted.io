@@ -1,7 +1,7 @@
 {
-  "name": "Hello Swift!",
+  "name": "Hello-Swift",
   "private": true,
-  "description": "Hello Swift!",
+  "description": "Hello-Swift",
   "version": "1.0.0",
   "author": "David Lin <yoxisem544@gmail.com>",
   "bugs": {
