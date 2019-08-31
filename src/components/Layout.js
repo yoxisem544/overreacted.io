@@ -57,7 +57,10 @@ class Layout extends React.Component {
             style={{
               boxShadow: 'none',
               textDecoration: 'none',
-              color: 'rgb(255, 167, 196)',
+              color:
+                this.state.theme === 'light'
+                  ? 'var(--auroraRed)'
+                  : 'var(--articBlue)',
             }}
             to={'/'}
           >
