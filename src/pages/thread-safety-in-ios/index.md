@@ -272,3 +272,7 @@ thread safe array average time:
 兩者的時間都很小，以手機 60 fps 的更新率來算，1 fps 你有 0.016 秒的運算時間可以使用，相比起來 thread safe 的運算時間小很多。如果怕讀取會卡住等寫入完成的話，可以先到背景讀取，等到取得你要的資料時再回到 main 即可。
 
 >>> thread safe array 一次讀寫操作約耗時 0.000026487 秒，在 0.016 秒中可以執行一樣的操作 600 次。但整體速度也要取決於裝置的 cpu，這裡只是大略測試。
+
+---
+
+Gist link: https://gist.github.com/yoxisem544/41811dbb8aaabf22bde02e8610de78ff
