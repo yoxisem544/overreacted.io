@@ -223,7 +223,7 @@ for _ in 1...10 {
 // thread safe array is 86.61977937105864% slower
 ```
 
-thread safe 讀取效能上降低了 86%。
+thread safe 寫入效能上降低了 86%。
 
 ---
 
@@ -273,6 +273,11 @@ thread safe array average time:
 
 >>> thread safe array 一次讀寫操作約耗時 0.000026487 秒，在 0.016 秒中可以執行一樣的操作 600 次。但整體速度也要取決於裝置的 cpu，這裡只是大略測試。
 
----
+>>> 補充：
+在實機測試時同時讀寫效能略好於 simulator（以 iPhone 8 @ iOS 13.1 為例）
+讀：慢 50%
+寫：慢 75%
+讀寫：慢 91%
 
+---
 Gist link: https://gist.github.com/yoxisem544/41811dbb8aaabf22bde02e8610de78ff
