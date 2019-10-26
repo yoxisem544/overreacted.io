@@ -274,10 +274,10 @@ thread safe array average time:
 >>> thread safe array 一次讀寫操作約耗時 0.000026487 秒，在 0.016 秒中可以執行一樣的操作 600 次。但整體速度也要取決於裝置的 cpu，這裡只是大略測試。
 
 >>> 補充：
-在實機測試時同時讀寫效能略好於 simulator（以 iPhone 8 @ iOS 13.1 為例）
-讀：慢 50%
-寫：慢 75%
-讀寫：慢 91%
+在實機測試時同時讀寫效能略好於 simulator（以 iPhone 8 @ iOS 13.1.3 為例）且使用 release build。
+讀：慢 99.88%
+寫：慢 99.83%
+讀寫：慢 99.92%
 
 ---
 Gist link: https://gist.github.com/yoxisem544/41811dbb8aaabf22bde02e8610de78ff
