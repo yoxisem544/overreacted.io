@@ -160,3 +160,9 @@ struct WrappedBundleImage: _ExpressibleByImageLiteral { ... }
 ```
 
 使用了 `_ExpressibleByImageLiteral` 使用了 private api，不確定審核的時候會不會被 apple 擋下來，可能要注意一下（但感覺這個 private api 沒有繞過什麼或者作弊之類的，可能不會有問題）
+
+### 參考資源
+
+[小鱼周凌宇 - 关于 Pod 库的资源引用 resource_bundles or resources](https://juejin.im/post/5a77fb8df265da4e99576702)
+
+[stackoverflow - Xcode8: Usage of image literals in frameworks](https://stackoverflow.com/questions/41834472/xcode8-usage-of-image-literals-in-frameworks)
