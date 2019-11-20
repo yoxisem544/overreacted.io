@@ -7,17 +7,20 @@ spoiler: How we structure our network layer
 ### Table of Contents
 
 - [Basics](./#basics)
-- NetworkClient
-- Config
-- Structure a Network Request
-  - Define Request Type
-  - Define Request
-  - Decoding
-  - Header, Access token
-- Retry Request
-- Plugins
-- OAuth and RESTful together
-- RxSwift Submodule
+- [NetworkClient](./#networkclient)
+- [Config](./#config)
+- [Structure a Network Request](./#structure-a-network-request)
+  - [Define Request Type](./#define-request-type)
+  - [Define Request](./#define-request)
+  - [Decoding](./#decoding)
+- [Retry Request](./#retry-request)
+- [Plugins](./#plugins)
+  - [Header injection](./#header-injection)
+  - [Access Token Injection](./#access-token-injection)
+  - [Refresh Token Plugin](./#refresh-token-plugin)
+  - [如何使用這些 Plugins](./#如何使用這些-plugins)
+- [OAuth and RESTful together](./#oauth-and-restful-together)
+- [RxSwift Submodule](./#rxswift-submodule)
 
 # Basics
 
@@ -30,6 +33,21 @@ APIKit 使用了以下套件來輔助我們抽象化一些複雜的實作，以�
 - [ObjectMapper](https://github.com/tristanhimmelman/ObjectMapper): Help us to transform json into Swift model. An alternative option of JSON decoding.
 - [PromiseKit](https://github.com/mxcl/PromiseKit): Promise for Swift.
 - [RxSwift](https://github.com/ReactiveX/RxSwift): Reactive Programming in Swift
+
+## Installation
+
+### Cocoapods
+
+```ruby
+pod 'APIKit'
+pod 'APIKit/RxSwift' # if you prefer to use RxSwift extensions
+```
+
+## Requirment
+
+- Xcode 11.x
+- Swift 5.x
+- Cocoapods >= 1.4.0
 
 # NetworkClient
 
@@ -208,6 +226,8 @@ extension GitHubRequestType {
 
 由於 `GitHubRequestType` 的基底是 `TargetType`，也因為 `GitHubRequestType` 有固定的 url，所以我們可以透過 extension 的方式給他一個固定的 url，且這個 url 可以透過剛才我們宣告的 API.config 來取得（如果 config 有變化，base url 也會跟著更新）。這裡多宣告了 `parameters: [String : Any]` 的原因是 GitHub api 可能會有很多傳遞參數的情況發生，所以多一個 parameters 來存放可能會傳出的參數（這裡要多什麼 Property 可以根據使用狀況來新增）。
 
+>>> 如果你的服務不只使用了 GitHub，可能用到了比如 Unsplash, Pinterest 等等服務，你可以多定義出 `UnsplashRequestType`, `PinterestRequestType`，就可以支援多個服務囉。
+
 ## Define Request
 
 定義好 `GitHubRequestType` 之後我們來看如何定義一個 api call。
@@ -256,30 +276,187 @@ API.shared.request(GitHubReqeust.User.GetProfile(of: "some_user_id"))
 
 ## Decoding
 
-## Header, Access token
+最佳的情況是我們可以固定的將 server 吐給我們的資料轉成 swift object 方便使用，除了可以使用官方提供的 `Decodable` 以外，我發現 `ObjectMapper` 也是不錯的 json decode 工具。所以 `APIKit` 同時支援 `Decodable` 以及 `ObjectMapper`。
+
+假設剛剛的 `GetProfile` 回傳的 json 可以被轉換成 User Object（不管是使用 `Decodable` 還是 `ObjectMapper`）：
+
+```swift
+import ObjectMapper
+
+struct User {
+  let name: String
+  let id: String
+
+  enum CodingKeys: String, CodingKey {
+    case name, id
+  }
+}
+
+extension User: Decodable {
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.name = try container.decode(String.self, forKey: .name)
+    self.id = try container.decode(String.self, forKey: .id)
+  }
+}
+
+extension User: ImmutableMappable {
+  init(map: Map) throws {
+    name = try map.value("name")
+    id = try map.value("id")
+  }
+}
+```
+
+且告訴該 Request，他是可以被 decode 的型態，APIKit 提供了兩個 decode 用的 protocol：
+
+```swift
+import ObjectMapper
+
+public protocol DecodableResponse {
+  associatedtype ResponseType: Decodable
+}
+
+public protocol MappableResponse {
+  associatedtype ResponseType: BaseMappable
+}
+```
+
+只要將其套上 Request：
+
+```swift
+public struct GetProfile: GitHubRequestType, DecodableResponse {
+  typealias ResponseType = User
+}
+
+// or
+
+public struct GetProfile: GitHubRequestType, MappableResponse {
+  typealias ResponseType = User
+}
+```
+
+就可以在 network call 完成後自動被轉換為該 object 囉。
 
 # Retry Request
 
+如果有些 api 在失敗的時候會需要重試幾次，超過一定次數才會真的失敗的話，APIKit 也提供了一個 protocl：
+
+```swift
+public protocol RetryableRquest {
+  var retryBehavior: RepeatBehavior { get }
+}
+
+public extension RetryableRquest {
+  /// Default to general delay with retry count 3 times, each retry with 2 seconds interval.
+  var retryBehavior: RepeatBehavior { return .delayed(maxCount: 3, time: 2) }
+}
+
+public struct GetProfile: GitHubRequestType, MappableResponse, RetryableRquest {
+  // ...
+}
+```
+
+預設的重試次數為兩次，間隔 3 秒，如果需要間隔與次數的變化，可以 overload 該 property，或者是換成其他 retry 的方式：
+
+```swift
+public enum RepeatBehavior {
+  case immediate(maxCount: UInt)
+  case delayed(maxCount: UInt, time: Double)
+  case exponentialDelayed(maxCount: UInt, initial: Double, multiplier: Double)
+  case customTimerDelayed(maxCount: UInt, delayCalculator: (UInt) -> DispatchTimeInterval)
+}
+```
+
+通常比較常使用的是 `delayed` 跟 `exponentialDelayed`，`exponentialDelayed` 為指數避障算法，有興趣者可以自行 google 一下。
+
 # Plugins
+
+會選擇使用 Moya 作為這個框架個基礎是因為我們可以在每個 api call 的前與後做一些手腳，可以看到 [Moya/Plugin](https://github.com/Moya/Moya/blob/master/docs/Plugins.md#plugins) 中提到每個 request 要送出前都可以對其 `URLRequest` 插入一些值，或者在取得 response 時檢查 error code，並且作出處理。
+
+利用這些特性我們可以簡單地做到 inject header 跟 access token 的效果。
+
+## Access Token Injection
+
+參考：[Moya/Plugins/AccessTokenPlugin.swift](https://github.com/Moya/Moya/blob/master/Sources/Moya/Plugins/AccessTokenPlugin.swift)
+
+只要我們需要該 Request 在送出前都加上 access token，我們只要在該 Request 加上 `AccessTokenAuthorizable` 即可：
+
+```swift
+public struct GetProfile: GitHubRequestType, MappableResponse, AccessTokenAuthorizable {
+  // ...
+}
+```
+
+## Header injection
+
+同理，如果要加上 Header，也可以參考 [Moya/Plugins/AccessTokenPlugin.swift](https://github.com/Moya/Moya/blob/master/Sources/Moya/Plugins/AccessTokenPlugin.swift)，或者參考 APIKit 中的 `XAuthHeaderInjectingPlugin`。
+
+## Refresh Token Plugin
+
+APIKit 提供了一個 `RefreshTokenPlugin` 來幫助處理 refresh access token 問題，在處理 refresh token ˊ之前，會建議先了解 OAuth 2.0 的 refresh token 具體是在做什麼的。
+
+Refresh token 有一些特性我們要先了解：
+
+1. refresh token 只能使用一次，且一次只能有一個 refresh request 執行（如果一次打兩個以上的 refresh request 出去，就會有問題）
+2. access token 有時效性，只要超過時效，就必須使用 refresh token 去換新的 access token（甚至有些 refresh token 也有時效性，但 refresh token 時效要比 access token 還要長）
+3. refresh 可能會失效（可能 timeout、可能是對方 server 壞掉，這些 edge case 很罕見，可以斟酌情況處理）
+4. api 失敗後要看 server 定義了 401 還是 403 為 unauthorized，取得某些特定 error code 才觸發 refresh
+5. 在 refresh 同時，api call 全部暫停（切記 refresh plugin 只會將該 network client 上的所有 api 暫停，如果你有多個 client，並不會全部都暫停）
+6. 在 success 後要記得更新 access token 到你存放 token 的地方，不然你會一直用舊的 token 在做驗證
+7. 由於某些情況下會觸發很多 401 的 error（比如你打了 3 個 api，全部拿到 401 error code，其中有一個 api 先完成，且觸發 refresh，其他兩個在 10 秒後才帶著 401 error code 回來，這時候還會觸發一次 refresh request，為了處理這個狀況，在 refresh 成功後 60 秒內，我會 100% 相信當前的 token 為有效 token，然後忽略所有的 401 error code）
+
+如果有些特殊的狀況要處理，建議可以自己寫一個客製化的 plugin 來處理。
+
+## 如何使用這些 Plugins
+
+如果要使用 Plugin 的話我們要對 NetworkClient 做一點手腳（以下這個 client 就加入了四個不同效果的 plugin）：
+
+```swift
+extension API {
+    public static let shared: NetworkClient = {
+        let refreshPlugin = RefreshTokenPlugin(
+            checkRefreshTokenValidLengthClosure: {
+                return true
+            },
+            triggerRefreshClosure: { response in
+                return true
+            },
+            refreshRequest: SampleReqeust.Auth.RefreshAccessToken(),
+            successToRefreshClosure: { json in accessToken += "after refresh" },
+            failToRefreshClosure: { error in }
+        )
+        let xAuthHeaderInjectingPlugin = XAuthHeaderInjectingPlugin(xAuthHeaderClosure: { target in
+            return API.config.xAuthToken
+        })
+        let plugins: [PluginType] = [
+            NetworkTrafficPlugin.init(indicators: .start, .done),
+            xAuthHeaderInjectingPlugin,
+            refreshPlugin,
+            AccessTokenProvidingPlugin(tokenClosure: {
+                return accessToken
+            })
+        ]
+        let provider = MoyaProvider<MultiTarget>(plugins: plugins)
+        let client = NetworkClient(provider: provider)
+        refreshPlugin.networkClientRef = client
+        return client
+    }()
+}
+```
+
+>>> 我們可以 overload 原有的 `shared` `NetworkClient`，或者再新增另外一個 `NetworkClient`。
 
 # OAuth and RESTful together
 
+搭配上面的 `RefreshTokenPlugin` 跟 `RetryableRquest`，我們可以讓每一個 request 在拿到 401 的同時觸發 refresh request 且 retry 原本的 request，進而達到無縫換 token 的效果。
 
+# RxSwift Submodule
 
+如果你習慣使用 RxSwift，我們也提供了 RxSwift 的擴展，這些擴展支援上述的所有功能包含 decoding, retry。
 
+你可以透過 Cocoapods 安裝：
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-ㄦ
+```ruby
+pod 'APIKit/RxSwift'
+```
