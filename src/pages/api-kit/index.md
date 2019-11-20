@@ -390,7 +390,28 @@ public struct GetProfile: GitHubRequestType, MappableResponse, AccessTokenAuthor
 
 ## Header injection
 
-同理，如果要加上 Header，也可以參考 [Moya/Plugins/AccessTokenPlugin.swift](https://github.com/Moya/Moya/blob/master/Sources/Moya/Plugins/AccessTokenPlugin.swift)，或者參考 APIKit 中的 `XAuthHeaderInjectingPlugin`。
+同理，如果要加上 Header，也可以參考 [Moya/Plugins/AccessTokenPlugin.swift](https://github.com/Moya/Moya/blob/master/Sources/Moya/Plugins/AccessTokenPlugin.swift)，或者參考 APIKit 中的 `HeaderInjectingPlugin`。
+
+你可以透過這個 plugin 來插入一些 header fields：
+
+```swift
+public static let sharedd: NetworkClient = {
+  let headerInjectingPlugin = HeaderInjectingPlugin(headerClosure: { target in
+    return [
+      "x-auth-token": API.config.xAuthToken,
+      "app-version": "1.2.3",
+      "platform": "iOS",
+    ]
+  })
+  let plugins: [PluginType] = [
+    NetworkTrafficPlugin.init(indicators: .start, .done),
+    headerInjectingPlugin
+  ]
+  let provider = MoyaProvider<MultiTarget>(plugins: plugins)
+  let client = NetworkClient(provider: provider)
+  return client
+}()
+```
 
 ## Refresh Token Plugin
 
